@@ -1,0 +1,11 @@
+# Supported providers: ESSENTIALSX (requires Vault) or COINSENGINE.
+economy:
+  provider: ESSENTIALSX
+  coinsengine-currency: coins
+theme:
+  gui-titles: '&a'
+  messages: '&a'
+  primary: '&a'
+  secondary: '&7'
+  accents: '&a'
+  countdowns: '&8'

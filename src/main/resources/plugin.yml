@@ -1,0 +1,22 @@
+name: FalconAuction
+version: '1.0.2'
+main: com.falcon.auction.FalconAuction
+api-version: '1.21'
+folia-supported: true
+author: Kiarerss
+description: Standalone auction house with CoinsEngine and EssentialsX support
+softdepend: [Vault, Essentials, CoinsEngine]
+commands:
+  ah:
+    aliases: [auctionhouse]
+  auction:
+    description: Reload or administer auctions
+permissions:
+  auction.quickbuy:
+    default: false
+  auction.reload:
+    default: op
+  auction.admin:
+    default: op
+  donutauction.reload:
+    default: op
