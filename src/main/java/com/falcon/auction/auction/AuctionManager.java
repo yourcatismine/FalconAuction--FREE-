@@ -14,14 +14,14 @@ import org.bukkit.inventory.ItemStack;
 public class AuctionManager {
   private final AuctionController controller;
   private final List<AuctionItem> items;
-  private long lastUpdate = System.currentTimeMillis();
+  private volatile long lastUpdate = System.currentTimeMillis();
 
   public AuctionManager(AuctionController controller) {
     this.controller = controller;
     this.items = new CopyOnWriteArrayList<>();
   }
 
-  public void addItem(AuctionItem item) {
+  public synchronized void addItem(AuctionItem item) {
     if (!Utils.isValidPrice(item.getPrice())) throw new IllegalArgumentException("Price must be greater than 0");
 
     FalconAuction.getInstance().getDatabaseManager().saveAuctionItemAsync(item);
@@ -36,7 +36,7 @@ public class AuctionManager {
     if (removed) {
       this.lastUpdate = System.currentTimeMillis();
     }
-    return removed;
+    return removed && !isClaimExpired(item);
   }
 
   public boolean isExpired(AuctionItem item) {
@@ -45,11 +45,11 @@ public class AuctionManager {
   }
 
   public List<AuctionItem> getItems() {
-    return Collections.unmodifiableList(this.items);
+    return this.items.stream().filter(item -> !isClaimExpired(item)).toList();
   }
 
   /** Update cached seller names after an account rename. */
-  public void remapSellerName(String oldName, String newName) {
+  public synchronized void remapSellerName(String oldName, String newName) {
     if (oldName == null
         || newName == null
         || oldName.isBlank()
@@ -74,7 +74,7 @@ public class AuctionManager {
   public List<AuctionItem> getActiveItems() {
     long now = System.currentTimeMillis();
     ArrayList<AuctionItem> out = new ArrayList<AuctionItem>();
-    for (AuctionItem it : this.items) {
+    for (AuctionItem it : getItems()) {
       if (now - it.getListedAt() >= (long) it.getDuration() * 1000L) continue;
       out.add(it);
     }
@@ -83,10 +83,10 @@ public class AuctionManager {
 
   public void clearPendingSales(UUID seller) {}
 
-  public void updatePrice(UUID auctionId, double newPrice) {
+  public synchronized void updatePrice(UUID auctionId, double newPrice) {
     if (!Utils.isValidPrice(newPrice)) throw new IllegalArgumentException("Price must be greater than 0");
     for (AuctionItem ai : this.items) {
-      if (ai.getId().equals(auctionId)) {
+      if (ai.getId().equals(auctionId) && !isClaimExpired(ai)) {
         ai.setPrice(newPrice);
         FalconAuction.getInstance().getDatabaseManager().saveAuctionItemAsync(ai);
         return;
@@ -94,7 +94,7 @@ public class AuctionManager {
     }
   }
 
-  public void removeAllItems(String sellerName) {
+  public synchronized void removeAllItems(String sellerName) {
     if (sellerName == null || sellerName.isBlank()) return;
     List<AuctionItem> removed = new ArrayList<>();
     this.items.removeIf(item -> {
@@ -110,9 +110,31 @@ public class AuctionManager {
     }
   }
 
-  public void loadFromConfig() {
+  public synchronized void loadFromConfig() {
     this.items.clear();
     this.items.addAll(FalconAuction.getInstance().getDatabaseManager().loadAllAuctionItems());
+    cleanupExpired();
+  }
+
+  public long getClaimDeadline(AuctionItem item) {
+      return AuctionRetention.deleteAt(item.getListedAt(), item.getDuration());
+  }
+
+  public boolean isClaimExpired(AuctionItem item) {
+      return AuctionRetention.isClaimExpired(item.getListedAt(), item.getDuration(), System.currentTimeMillis());
+  }
+
+  /** Runs on startup and periodically, even when no players open the auction. */
+  public synchronized void cleanupExpired() {
+      long now = System.currentTimeMillis();
+      List<AuctionItem> expired = this.items.stream()
+              .filter(item -> AuctionRetention.isClaimExpired(item.getListedAt(), item.getDuration(), now))
+              .toList();
+      if (expired.isEmpty()) return;
+      FalconAuction.getInstance().getDatabaseManager().deleteAuctionItems(
+              expired.stream().map(AuctionItem::getId).toList());
+      this.items.removeAll(expired);
+      this.lastUpdate = now;
   }
 
   public void saveToConfig() { /* Listing mutations are persisted immediately. */ }

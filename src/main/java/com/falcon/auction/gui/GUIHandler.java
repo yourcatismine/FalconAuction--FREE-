@@ -437,6 +437,16 @@ public class GUIHandler {
           finalLore.addAll(auctionLore);
         }
         if (mm != null) {
+          long deleteAt = controller.getAuctionManager().getClaimDeadline(ai);
+          long claimRemaining = Math.max(0, deleteAt - System.currentTimeMillis());
+          if (controller.getAuctionManager().isExpired(ai)) {
+              finalLore.add(Utils.formatColors("&cAuto-deletes in: &f"
+                      + FormatUtils.formatTime((int) Math.ceilDiv(claimRemaining, 1000L))));
+          }
+          pdc.set(new org.bukkit.NamespacedKey(controller.getPlugin(), "auction-delete-at"),
+                  org.bukkit.persistence.PersistentDataType.LONG, deleteAt);
+          pdc.set(new org.bukkit.NamespacedKey(controller.getPlugin(), "auction-item-id"),
+                  org.bukkit.persistence.PersistentDataType.STRING, ai.getId().toString());
           mm.setLore(finalLore);
 
           org.bukkit.NamespacedKey key =

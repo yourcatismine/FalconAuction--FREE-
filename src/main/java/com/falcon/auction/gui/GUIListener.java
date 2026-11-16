@@ -362,7 +362,8 @@ public class GUIListener implements Listener {
     }
     if (top instanceof GUIHandler.YourItemsHolder) {
 
-      if (event.getClickedInventory() == null) return;
+      if (event.getClickedInventory() == null)
+        return;
       if (event.getClickedInventory().equals(event.getView().getTopInventory())) {
         event.setCancelled(true);
       } else {
@@ -384,28 +385,36 @@ public class GUIListener implements Listener {
         return;
       }
       if (slot >= 0 && slot < 18 || slot >= 19 && slot < 26) {
-        int idx = slot < 18 ? slot : slot - 1;
-        List<AuctionItem> mine =
-            this.controller.getAuctionManager().getItems().stream()
-                .filter(ai -> ai.getSeller().equals(p.getName()))
-                .collect(Collectors.toList());
-        if (idx < mine.size()) {
-          p.playSound(p.getLocation(), def, 1.0f, 1.0f);
-          AuctionItem ai5 = (AuctionItem) mine.get(idx);
-          if (p.getInventory().firstEmpty() == -1) {
-            p.sendMessage(
-                Utils.formatColors(
-                    this.controller.getConfig().getString("messages.inventory-full")));
-            p.playSound(p.getLocation(), no, 1.0f, 1.0f);
-            return;
-          }
-          this.controller.getAuctionManager().removeItem(ai5);
-          ItemStack finalItem = this.controller.getAuctionManager().getFinalItem(ai5);
-          p.getInventory().addItem(new ItemStack[] {finalItem});
-          p.sendMessage(
-              Utils.formatColors(this.controller.getConfig().getString("messages.returned-item")));
-          GUIHandler.openYourItemsGUI(p, this.controller);
+        ItemStack clicked = event.getCurrentItem();
+        if (clicked == null || !clicked.hasItemMeta()) return;
+        String listingId = clicked.getItemMeta().getPersistentDataContainer().get(
+            new org.bukkit.NamespacedKey(controller.getPlugin(), "auction-item-id"),
+            org.bukkit.persistence.PersistentDataType.STRING);
+        Optional<AuctionItem> listing = controller.getAuctionManager().getItems().stream()
+            .filter(ai -> ai.getSeller().equals(p.getName()) && ai.getId().toString().equals(listingId))
+            .findFirst();
+        if (listing.isEmpty()) {
+          p.sendMessage(Utils.formatColors("&cThis item is no longer available."));
+          GUIHandler.openYourItemsGUI(p, controller);
+          return;
         }
+        p.playSound(p.getLocation(), def, 1.0f, 1.0f);
+        AuctionItem ai5 = listing.get();
+        if (p.getInventory().firstEmpty() == -1) {
+          p.sendMessage(
+              Utils.formatColors(this.controller.getConfig().getString("messages.inventory-full")));
+          p.playSound(p.getLocation(), no, 1.0f, 1.0f);
+          return;
+        }
+        if (!this.controller.getAuctionManager().removeItem(ai5)) {
+          p.sendMessage(Utils.formatColors("&cThis item is no longer available."));
+          GUIHandler.openYourItemsGUI(p, controller);
+          return;
+        }
+        ItemStack finalItem = this.controller.getAuctionManager().getFinalItem(ai5);
+        p.getInventory().addItem(new ItemStack[] { finalItem });
+        p.sendMessage(Utils.formatColors(this.controller.getConfig().getString("messages.returned-item")));
+        GUIHandler.openYourItemsGUI(p, this.controller);
       }
       return;
     }
@@ -842,7 +851,11 @@ public class GUIListener implements Listener {
             p.playSound(p.getLocation(), no, 1.0f, 1.0f);
             return;
           }
-          this.controller.getAuctionManager().removeItem(item);
+          if (!this.controller.getAuctionManager().removeItem(item)) {
+            p.sendMessage(Utils.formatColors("&cThis item is no longer available."));
+            p.closeInventory();
+            return;
+          }
           ItemStack finalItem = this.controller.getAuctionManager().getFinalItem(item);
           p.getInventory().addItem(finalItem);
           p.sendMessage(Utils.formatColors("&#34ee80Item taken from auction!"));

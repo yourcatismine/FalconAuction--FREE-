@@ -21,6 +21,7 @@ import org.bukkit.event.Listener;
 public class AuctionController {
   private final FalconAuction plugin;
   private AuctionManager auctionManager;
+  private org.bukkit.scheduler.BukkitTask cleanupTask;
   private TransactionManager transactionManager;
   private GUIListener guiListener;
   private File filterFile;
@@ -57,10 +58,13 @@ public class AuctionController {
     this.guiListener = new GUIListener(this);
     plugin.getServer().getPluginManager().registerEvents((Listener) this.guiListener, plugin);
     this.startAutoSaveTask();
+    this.cleanupTask = plugin.getSchedulerAdapter().runTaskTimerAsync(
+      auctionManager::cleanupExpired, 1200L, 1200L);
     plugin.getLogger().info("Auction system enabled.");
   }
 
   public void disable() {
+    if (cleanupTask != null) cleanupTask.cancel();
     this.saveAllData();
     plugin.getLogger().info("Auction system disabled.");
   }
@@ -222,6 +226,30 @@ public class AuctionController {
                         meta.getPersistentDataContainer();
 
                     boolean changed = false;
+
+                    if (pdc.has(new org.bukkit.NamespacedKey(plugin, "auction-delete-at"),
+                            org.bukkit.persistence.PersistentDataType.LONG)) {
+                        long deleteAt = pdc.get(new org.bukkit.NamespacedKey(plugin, "auction-delete-at"),
+                                org.bukkit.persistence.PersistentDataType.LONG);
+                        long claimRemaining = deleteAt - System.currentTimeMillis();
+                        if (claimRemaining <= 0) {
+                            top.setItem(i, null);
+                            continue;
+                        }
+                        if (meta.hasLore()) {
+                            java.util.List<String> lore = new java.util.ArrayList<>(meta.getLore());
+                            lore.removeIf(line -> org.bukkit.ChatColor.stripColor(line).startsWith("Auto-deletes in:")
+                                    || org.bukkit.ChatColor.stripColor(line).equals("Claim within 24h after listing expires."));
+                            long listingExpiry = pdc.getOrDefault(auctionKey,
+                                    org.bukkit.persistence.PersistentDataType.LONG, Long.MAX_VALUE);
+                            if (System.currentTimeMillis() >= listingExpiry) {
+                                lore.add(Utils.formatColors("&cAuto-deletes in: &f"
+                                        + FormatUtils.formatTime((int) Math.ceilDiv(claimRemaining, 1000L))));
+                            }
+                            meta.setLore(lore);
+                            changed = true;
+                        }
+                    }
 
                     if (pdc.has(auctionKey, org.bukkit.persistence.PersistentDataType.LONG)) {
                       long expireTime =
